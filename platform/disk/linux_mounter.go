@@ -3,6 +3,7 @@ package disk
 import (
 	"fmt"
 	"strings"
+	"syscall"
 	"time"
 
 	bosherr "github.com/cloudfoundry/bosh-utils/errors"
@@ -10,6 +11,7 @@ import (
 )
 
 type linuxMounter struct {
+	fs                boshsys.FileSystem
 	runner            boshsys.CmdRunner
 	mountsSearcher    MountsSearcher
 	maxUnmountRetries int
@@ -17,11 +19,13 @@ type linuxMounter struct {
 }
 
 func NewLinuxMounter(
+	fs boshsys.FileSystem,
 	runner boshsys.CmdRunner,
 	mountsSearcher MountsSearcher,
 	unmountRetrySleep time.Duration,
 ) Mounter {
 	return linuxMounter{
+		fs:                fs,
 		runner:            runner,
 		mountsSearcher:    mountsSearcher,
 		maxUnmountRetries: 600,
@@ -129,6 +133,20 @@ func (m linuxMounter) Unmount(partitionOrMountPoint string) (bool, error) {
 		_, _, _, err = m.runner.RunCommand("umount", partitionOrMountPoint)
 	}
 
+	return err == nil, err
+}
+
+func (m linuxMounter) Detach(realPath string) (bool, error) {
+	isMounted, err := m.IsMounted(realPath)
+	if err != nil || isMounted {
+		return false, err
+	}
+
+	stat := syscall.Stat_t{}
+	_ = syscall.Stat(realPath, &stat)
+	deleteDevicePath := fmt.Sprintf("/sys/dev/block/%d:%d/device/delete", stat.Rdev/256, stat.Rdev%256)
+
+	err = m.fs.WriteFileString(deleteDevicePath, "1")
 	return err == nil, err
 }
 

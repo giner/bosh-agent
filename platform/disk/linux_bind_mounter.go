@@ -44,6 +44,10 @@ func (m linuxBindMounter) Unmount(partitionOrMountPoint string) (bool, error) {
 	return m.delegateMounter.Unmount(partitionOrMountPoint)
 }
 
+func (m linuxBindMounter) Detach(realPath string) (bool, error) {
+	return m.delegateMounter.Unmount(realPath)
+}
+
 func (m linuxBindMounter) IsMountPoint(path string) (string, bool, error) {
 	return m.delegateMounter.IsMountPoint(path)
 }

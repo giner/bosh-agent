@@ -53,7 +53,7 @@ func NewLinuxDiskManager(
 		mountsSearcher = NewCmdMountsSearcher(runner)
 	}
 
-	mounter = NewLinuxMounter(runner, mountsSearcher, 1*time.Second)
+	mounter = NewLinuxMounter(fs, runner, mountsSearcher, 1*time.Second)
 
 	if opts.BindMount {
 		mounter = NewLinuxBindMounter(mounter)

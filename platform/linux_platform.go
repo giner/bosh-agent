@@ -1239,11 +1239,24 @@ func (p linux) UnmountPersistentDisk(diskSettings boshsettings.DiskSettings) (bo
 		return false, bosherr.WrapError(err, "Getting real device path")
 	}
 
+	partitionPath := realPath
 	if !p.options.UsePreformattedPersistentDisk {
-		realPath = p.partitionPath(realPath, 1)
+		partitionPath = p.partitionPath(realPath, 1)
 	}
 
-	return p.diskManager.GetMounter().Unmount(realPath)
+	_, err = p.diskManager.GetMounter().Unmount(partitionPath)
+	if err != nil {
+		return false, bosherr.WrapError(err, "Unmounting persistent disk")
+	}
+
+	if p.options.DevicePathResolutionType == "scsi" {
+		_, err = p.diskManager.GetMounter().Detach(realPath)
+		if err != nil {
+			return false, bosherr.WrapError(err, "Detaching persistent disk")
+		}
+	}
+
+	return true, nil
 }
 
 func (p linux) GetEphemeralDiskPath(diskSettings boshsettings.DiskSettings) string {
