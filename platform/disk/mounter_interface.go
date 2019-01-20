@@ -4,6 +4,7 @@ type Mounter interface {
 	Mount(partitionPath, mountPoint string, mountOptions ...string) (err error)
 	MountFilesystem(partitionPath, mountPoint, fstype string, mountOptions ...string) (err error)
 	Unmount(partitionOrMountPoint string) (didUnmount bool, err error)
+	Detach(realPath string) (didDetach bool, err error)
 
 	RemountAsReadonly(mountPoint string) (err error)
 	Remount(fromMountPoint, toMountPoint string, mountOptions ...string) (err error)

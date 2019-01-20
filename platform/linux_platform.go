@@ -1137,15 +1137,28 @@ func (p linux) UnmountPersistentDisk(diskSettings boshsettings.DiskSettings) (bo
 		return false, bosherr.WrapError(err, "Getting real device path")
 	}
 
+	partitionPath := realPath
 	if !p.options.UsePreformattedPersistentDisk {
 		if strings.Contains(realPath, "/dev/mapper/") {
-			realPath = realPath + "-part1"
+			partitionPath = realPath + "-part1"
 		} else {
-			realPath += "1"
+			partitionPath += "1"
 		}
 	}
 
-	return p.diskManager.GetMounter().Unmount(realPath)
+	_, err = p.diskManager.GetMounter().Unmount(partitionPath)
+	if err != nil {
+		return false, bosherr.WrapError(err, "Unmounting persistent disk")
+	}
+
+	//if p.options.DevicePathResolutionType == "scsi" {
+	//	_, err = p.diskManager.GetMounter().Detach(realPath)
+	//	if err != nil {
+	//		return false, bosherr.WrapError(err, "Detaching persistent disk")
+	//	}
+	//}
+
+	return true, nil
 }
 
 func (p linux) GetEphemeralDiskPath(diskSettings boshsettings.DiskSettings) string {
@@ -1194,15 +1207,16 @@ func (p linux) MigratePersistentDisk(fromMountPoint, toMountPoint string) (err e
 		return
 	}
 
+	// Get list of mounts before unmouting
+	mounts, err := p.diskManager.GetMountsSearcher().SearchMounts()
+	if err != nil {
+		err = bosherr.WrapError(err, "Search persistent disk as readonly")
+		return err
+	}
+
 	// Find iSCSI device id of fromMountPoint
 	var iscsiID string
 	if p.options.DevicePathResolutionType == "iscsi" {
-		mounts, err := p.diskManager.GetMountsSearcher().SearchMounts()
-		if err != nil {
-			err = bosherr.WrapError(err, "Search persistent disk as readonly")
-			return err
-		}
-
 		for _, mount := range mounts {
 			if mount.MountPoint == fromMountPoint {
 				r := regexp.MustCompile(`\/dev\/mapper\/(.*?)-part1`)
@@ -1218,6 +1232,19 @@ func (p linux) MigratePersistentDisk(fromMountPoint, toMountPoint string) (err e
 	if err != nil {
 		err = bosherr.WrapError(err, "Unmounting old persistent disk")
 		return
+	}
+
+	// Detach source device after unmounting
+	// See https://github.com/cloudfoundry/bosh-agent/issues/198
+	if p.options.DevicePathResolutionType == "scsi" {
+		for _, mount := range mounts {
+			if mount.MountPoint == fromMountPoint {
+				_, err = p.diskManager.GetMounter().Detach(mount.PartitionPath)
+				if err != nil {
+					return bosherr.WrapError(err, "Detaching persistent disk for fromMountPoint")
+				}
+			}
+		}
 	}
 
 	err = p.diskManager.GetMounter().Remount(toMountPoint, fromMountPoint)

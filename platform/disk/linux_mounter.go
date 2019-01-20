@@ -2,13 +2,17 @@ package disk
 
 import (
 	"strings"
+	"syscall"
 	"time"
+	"fmt"
+	"path/filepath"
 
 	bosherr "github.com/cloudfoundry/bosh-utils/errors"
 	boshsys "github.com/cloudfoundry/bosh-utils/system"
 )
 
 type linuxMounter struct {
+	fs                boshsys.FileSystem
 	runner            boshsys.CmdRunner
 	mountsSearcher    MountsSearcher
 	maxUnmountRetries int
@@ -16,11 +20,13 @@ type linuxMounter struct {
 }
 
 func NewLinuxMounter(
+	fs boshsys.FileSystem,
 	runner boshsys.CmdRunner,
 	mountsSearcher MountsSearcher,
 	unmountRetrySleep time.Duration,
 ) Mounter {
 	return linuxMounter{
+		fs:                fs,
 		runner:            runner,
 		mountsSearcher:    mountsSearcher,
 		maxUnmountRetries: 600,
@@ -114,6 +120,32 @@ func (m linuxMounter) Unmount(partitionOrMountPoint string) (bool, error) {
 		_, _, _, err = m.runner.RunCommand("umount", partitionOrMountPoint)
 	}
 
+	return err == nil, err
+}
+
+func (m linuxMounter) Detach(realPath string) (bool, error) {
+	isMounted, err := m.IsMounted(realPath)
+	if err != nil || isMounted {
+		return false, err
+	}
+
+	stat := syscall.Stat_t{}
+	_ = syscall.Stat(realPath, &stat)
+	blockDevicePath, err := m.fs.Readlink(fmt.Sprintf("/sys/dev/block/%d:%d", stat.Rdev/256, stat.Rdev%256))
+	if err != nil {
+		return false, err
+	}
+
+	// blockDevicePath can point to either partition (.../block/sda/sda1) or physical device (.../block/sda)
+	// Make sure we get physical one
+	physicalDeviceName := fmt.Sprintf("/sys/block/%s/device/delete", filepath.Base(blockDevicePath))
+	parent := filepath.Base(filepath.Dir(blockDevicePath))
+	if parent != "block" {
+		physicalDeviceName = parent
+	}
+
+	deletePhysicalDevicePath := fmt.Sprintf("/sys/block/%s/device/delete", physicalDeviceName)
+	err = m.fs.WriteFileString(deletePhysicalDevicePath, "1")
 	return err == nil, err
 }
 
